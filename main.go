@@ -34,12 +34,22 @@ func NewTrade(trade stream.Trade) Trade {
 }
 
 func main() {
+	// recover from panic
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Error("Recovered in f", r)
+		}
+	}()
+
 	quitChannel := make(chan os.Signal, 1)
 	signal.Notify(quitChannel, os.Interrupt)
 
 	dbPath := fmt.Sprintf("trades_%s.db", time.Now().Format("2006-01-02_15-04-05"))
 
+	logrus.Println("Database path: ", dbPath)
+
 	const batchSize = 100
+
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		SkipDefaultTransaction: true,
 		PrepareStmt:            true,
@@ -47,9 +57,13 @@ func main() {
 		Logger:                 logger.Default.LogMode(logger.Silent),
 	})
 
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
 	err = db.AutoMigrate(&Trade{})
 	if err != nil {
-		logrus.Panic(err)
+		logrus.Fatal(err)
 	}
 
 	// Problems with WAL mode, took the risk of setting synchronous to normal
@@ -60,7 +74,7 @@ func main() {
 
 	for _, pragma := range pragmas {
 		if res := db.Exec(pragma); res.Error != nil {
-			logrus.Panic(res.Error)
+			logrus.Fatal(res.Error)
 		}
 	}
 
@@ -77,7 +91,7 @@ func main() {
 	err = stocksStream.Connect(ctx)
 
 	if err != nil {
-		logrus.Panic(err)
+		logrus.Fatal(err)
 	}
 
 	err = stocksStream.SubscribeToTrades(func(trade stream.Trade) {
@@ -85,7 +99,7 @@ func main() {
 	}, "*")
 
 	if err != nil {
-		logrus.Panic(err)
+		logrus.Fatal(err)
 	}
 
 	go func() {
@@ -114,6 +128,10 @@ func main() {
 
 						return nil
 					})
+
+					if err != nil {
+						logrus.Fatal(err)
+					}
 
 					totalInserted += batchSize
 					batchIndex = 0
